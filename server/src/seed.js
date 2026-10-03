@@ -2,8 +2,6 @@ import 'dotenv/config';
 import { connectDatabase } from './config/db.js';
 import Listing from './models/Listing.js';
 import PolicySection from './models/PolicySection.js';
-import Review from './models/Review.js';
-import ReviewAction from './models/ReviewAction.js';
 import { makeEmbedding } from './utils/embedding.js';
 
 const policies = [
@@ -25,10 +23,38 @@ const listings = [
 
 async function seed() {
   await connectDatabase();
-  await Promise.all([Listing.deleteMany({}), PolicySection.deleteMany({}), Review.deleteMany({}), ReviewAction.deleteMany({})]);
-  await PolicySection.insertMany(policies.map((policy) => ({ ...policy, embedding: makeEmbedding(`${policy.title} ${policy.content} ${policy.keywords.join(' ')}`) })));
-  await Listing.insertMany(listings);
-  console.log(`Seeded ${policies.length} policy sections and ${listings.length} sample listings.`);
+  let policiesInserted = 0;
+  let policiesSkipped = 0;
+  let listingsInserted = 0;
+  let listingsSkipped = 0;
+
+  for (const policy of policies) {
+    const existing = await PolicySection.findOne({ code: policy.code }).select('_id').lean();
+    if (existing) {
+      policiesSkipped += 1;
+      continue;
+    }
+
+    await PolicySection.create({
+      ...policy,
+      embedding: makeEmbedding(`${policy.title} ${policy.content} ${policy.keywords.join(' ')}`),
+    });
+    policiesInserted += 1;
+  }
+
+  for (const listing of listings) {
+    const existing = await Listing.findOne({ title: listing.title, seller: listing.seller }).select('_id').lean();
+    if (existing) {
+      listingsSkipped += 1;
+      continue;
+    }
+
+    await Listing.create(listing);
+    listingsInserted += 1;
+  }
+
+  console.log(`Policies: ${policiesInserted} inserted, ${policiesSkipped} already existing.`);
+  console.log(`Listings: ${listingsInserted} inserted, ${listingsSkipped} already existing.`);
   process.exit(0);
 }
 seed().catch((error) => { console.error(error); process.exit(1); });
